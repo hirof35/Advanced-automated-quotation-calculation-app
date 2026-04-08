@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高度自動見積計算アプリ</title>
+    <style>
+        /* --- CSS: デザイン --- */
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #28a745;
+            --danger-color: #dc3545;
+            --excel-color: #1d6f42;
+            --bg-color: #f8f9fa;
+        }
+
+        body {
+            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .calculator-wide {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th {
+            background-color: #eee;
+            padding: 12px;
+            border-bottom: 2px solid #ddd;
+        }
+
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .subtotal-cell {
+            text-align: right;
+            font-weight: bold;
+            min-width: 100px;
+        }
+
+        /* ボタン群 */
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: opacity 0.2s;
+        }
+
+        button:hover { opacity: 0.8; }
+
+        .btn-add { background-color: var(--secondary-color); color: white; }
+        .btn-print { background-color: var(--primary-color); color: white; }
+        .btn-csv { background-color: var(--excel-color); color: white; }
+        .btn-delete { background-color: var(--danger-color); color: white; padding: 5px 10px; }
+        .btn-clear { background-color: #6c757d; color: white; margin-left: auto; }
+
+        /* 合計エリア */
+        .grand-total-area {
+            text-align: right;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f1f3f5;
+            border-radius: 8px;
+        }
+
+        .total-label { font-size: 1.1em; color: #555; }
+        .total-amount { font-size: 2em; color: var(--danger-color); margin-left: 10px; }
+
+        /* --- 印刷用スタイル --- */
+        @media print {
+            .actions, .btn-delete, .btn-add, .btn-clear { display: none !important; }
+            body { background: white; padding: 0; }
+            .calculator-wide { box-shadow: none; width: 100%; max-width: none; }
+            input, select { border: none; appearance: none; -webkit-appearance: none; background: transparent; }
+            th { border-bottom: 2px solid #000; }
+            td { border-bottom: 1px solid #ccc; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="calculator-wide">
+    <h2>御見積計算書</h2>
+    
+    <table id="item-table">
+        <thead>
+            <tr>
+                <th style="width: 35%;">商品名</th>
+                <th style="width: 15%;">単価</th>
+                <th style="width: 10%;">個数</th>
+                <th style="width: 15%;">税率</th>
+                <th style="width: 20%;">小計(税込)</th>
+                <th style="width: 5%;"></th>
+            </tr>
+        </thead>
+        <tbody id="item-list">
+            </tbody>
+    </table>
+
+    <button id="add-item-btn" class="btn-add">+ 行を追加</button>
+
+    <div class="grand-total-area">
+        <span class="total-label">合計金額（税込）:</span>
+        <span class="total-amount">¥<span id="final-total">0</span></span>
+    </div>
+
+    <div class="actions">
+        <button id="print-btn" class="btn-print">PDF保存 / 印刷</button>
+        <button id="csv-btn" class="btn-csv">Excel用CSV出力</button>
+        <button id="clear-btn" class="btn-clear">リセット</button>
+    </div>
+</div>
+
+<script>
+    /* --- JavaScript: ロジック --- */
+    const itemList = document.getElementById('item-list');
+    const addItemBtn = document.getElementById('add-item-btn');
+    const finalTotalDisplay = document.getElementById('final-total');
+
+    // 1. 行を追加する関数
+    function addItem(itemData = { name: '', price: '', quantity: 1, taxRate: '0.1' }) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input type="text" class="item-name" value="${itemData.name}" placeholder="商品名・サービス名"></td>
+            <td><input type="number" class="price" value="${itemData.price}" placeholder="0"></td>
+            <td><input type="number" class="quantity" value="${itemData.quantity}"></td>
+            <td>
+                <select class="tax-rate">
+                    <option value="0.1" ${itemData.taxRate === '0.1' ? 'selected' : ''}>10% (標準)</option>
+                    <option value="0.08" ${itemData.taxRate === '0.08' ? 'selected' : ''}>8% (軽減)</option>
+                </select>
+            </td>
+            <td class="subtotal-cell">¥<span class="subtotal">0</span></td>
+            <td><button class="btn-delete">×</button></td>
+        `;
+        
+        // 削除イベント
+        tr.querySelector('.btn-delete').addEventListener('click', () => {
+            tr.remove();
+            calculateAll();
+            saveToLocalStorage();
+        });
+
+        // 入力変更イベント
+        tr.querySelectorAll('input, select').forEach(el => {
+            el.addEventListener('input', () => {
+                calculateAll();
+                saveToLocalStorage();
+            });
+        });
+
+        itemList.appendChild(tr);
+        calculateAll();
+    }
+
+    // 2. 全計算
+    function calculateAll() {
+        let grandTotal = 0;
+        const rows = itemList.querySelectorAll('tr');
+
+        rows.forEach(row => {
+            const price = Number(row.querySelector('.price').value) || 0;
+            const qty = Number(row.querySelector('.quantity').value) || 0;
+            const rate = Number(row.querySelector('.tax-rate').value);
+
+            const subtotalNoTax = price * qty;
+            const subtotalWithTax = Math.floor(subtotalNoTax * (1 + rate));
+            
+            row.querySelector('.subtotal').textContent = subtotalWithTax.toLocaleString();
+            grandTotal += subtotalWithTax;
+        });
+
+        finalTotalDisplay.textContent = grandTotal.toLocaleString();
+    }
+
+    // 3. ローカルストレージ保存
+    function saveToLocalStorage() {
+        const rows = itemList.querySelectorAll('tr');
+        const data = Array.from(rows).map(row => ({
+            name: row.querySelector('.item-name').value,
+            price: row.querySelector('.price').value,
+            quantity: row.querySelector('.quantity').value,
+            taxRate: row.querySelector('.tax-rate').value
+        }));
+        localStorage.setItem('calcAppData_v1', JSON.stringify(data));
+    }
+
+    // 4. データ読み込み
+    function loadFromLocalStorage() {
+        const savedData = localStorage.getItem('calcAppData_v1');
+        if (savedData) {
+            const data = JSON.parse(savedData);
+            data.forEach(item => addItem(item));
+        } else {
+            addItem(); // 初回訪問時は空行を1つ
+        }
+    }
+
+    // 5. CSVエクスポート
+    document.getElementById('csv-btn').addEventListener('click', () => {
+        let csvContent = "商品名,単価,個数,税率,小計(税込)\n";
+        itemList.querySelectorAll('tr').forEach(row => {
+            const name = row.querySelector('.item-name').value;
+            const price = row.querySelector('.price').value;
+            const qty = row.querySelector('.quantity').value;
+            const rate = row.querySelector('.tax-rate').value === "0.1" ? "10%" : "8%";
+            const sub = row.querySelector('.subtotal').textContent.replace(/,/g, '');
+            csvContent += `"${name}",${price},${qty},${rate},${sub}\n`;
+        });
+
+        const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+        const blob = new Blob([bom, csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "estimate_export.csv";
+        link.click();
+    });
+
+    // 6. 印刷・リセット
+    document.getElementById('print-btn').addEventListener('click', () => window.print());
+    document.getElementById('clear-btn').addEventListener('click', () => {
+        if (confirm('全てのデータをリセットしますか？')) {
+            localStorage.removeItem('calcAppData_v1');
+            location.reload();
+        }
+    });
+
+    addItemBtn.addEventListener('click', () => {
+        addItem();
+        saveToLocalStorage();
+    });
+
+    // 起動！
+    loadFromLocalStorage();
+</script>
+
+</body>
+</html>
