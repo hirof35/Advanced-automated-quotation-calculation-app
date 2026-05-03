@@ -64,3 +64,5 @@ Developed for Efficient Business Workflow.
 [ ] 複数の見積書の保存・管理機能
 
 [ ] 外税/内税の切り替えオプション
+
+<img width="1919" height="1147" alt="スクリーンショット 2026-05-03 111909" src="https://github.com/user-attachments/assets/ae252821-6b02-4fc4-a855-e0e1c3eca443" />
